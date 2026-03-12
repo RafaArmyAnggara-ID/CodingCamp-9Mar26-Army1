@@ -9,6 +9,12 @@ class GreetingDisplay {
     this.container = containerElement;
     this.username = 'User';
     this.intervalId = null;
+    this.editTimeoutId = null;
+    this.editTimeLimit = 5 * 60 * 1000; // 5 minutes in milliseconds
+    this.editStartTime = null;
+    this.editCountdownIntervalId = null;
+    this.greetingUpdateInterval = 5 * 60 * 1000; // 5 minutes for greeting update
+    this.lastGreetingUpdate = null;
   }
 
   /**
@@ -35,11 +41,18 @@ class GreetingDisplay {
   render() {
     this.container.innerHTML = `
       <div class="greeting-container">
-        <h1 class="greeting-message"></h1>
+        <div class="greeting-header">
+          <h1 class="greeting-message"></h1>
+          <button class="btn-edit-username" title="Edit name">✏️</button>
+        </div>
         <div class="date-display"></div>
         <div class="time-display"></div>
+        <div class="edit-timer-container" style="display: none;">
+          <div class="edit-timer-message">Time remaining to edit: <span class="edit-timer-countdown">5:00</span></div>
+        </div>
       </div>
     `;
+    this.attachEventListeners();
   }
 
   /**
@@ -48,10 +61,17 @@ class GreetingDisplay {
   updateTime() {
     const now = new Date();
     
-    // Update greeting message
-    const greetingElement = this.container.querySelector('.greeting-message');
-    if (greetingElement) {
-      greetingElement.textContent = `${this.getGreeting()}, ${this.username}`;
+    // Check if greeting needs update (every 5 minutes)
+    const shouldUpdateGreeting = !this.lastGreetingUpdate || 
+                                  (now.getTime() - this.lastGreetingUpdate) >= this.greetingUpdateInterval;
+    
+    // Update greeting message only every 5 minutes
+    if (shouldUpdateGreeting) {
+      const greetingElement = this.container.querySelector('.greeting-message');
+      if (greetingElement) {
+        greetingElement.textContent = `${this.getGreeting()}, ${this.username}`;
+      }
+      this.lastGreetingUpdate = now.getTime();
     }
 
     // Update date display
@@ -94,8 +114,186 @@ class GreetingDisplay {
     if (name && typeof name === 'string') {
       this.username = name.trim() || 'User';
       StorageManager.set('dashboard_username', this.username);
-      this.updateTime(); // Refresh display with new name
+      
+      // Force update greeting immediately when username changes
+      const greetingElement = this.container.querySelector('.greeting-message');
+      if (greetingElement) {
+        greetingElement.textContent = `${this.getGreeting()}, ${this.username}`;
+      }
+      this.lastGreetingUpdate = Date.now();
     }
+  }
+
+  /**
+   * Attach event listeners
+   */
+  attachEventListeners() {
+    const editBtn = this.container.querySelector('.btn-edit-username');
+    if (editBtn) {
+      editBtn.addEventListener('click', () => {
+        this.handleEditUsername();
+      });
+    }
+  }
+
+  /**
+   * Handle username editing with inline input
+   */
+  handleEditUsername() {
+    const greetingMessage = this.container.querySelector('.greeting-message');
+    if (!greetingMessage) return;
+
+    const currentUsername = this.username;
+
+    // Create input element
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'username-edit-input';
+    input.value = currentUsername;
+    input.maxLength = 50;
+    input.placeholder = 'Enter your name';
+
+    // Replace greeting message with input
+    const originalContent = greetingMessage.textContent;
+    greetingMessage.textContent = '';
+    greetingMessage.appendChild(input);
+    input.focus();
+    input.select();
+
+    // Start edit timer
+    this.startEditTimer();
+
+    // Save on blur or Enter
+    const saveEdit = () => {
+      this.stopEditTimer();
+      const newName = input.value.trim();
+      if (newName && newName.length > 0 && newName.length <= 50) {
+        this.setUsername(newName);
+      } else if (newName.length === 0) {
+        this.setUsername('User');
+      } else {
+        // Revert if invalid
+        const greetingElement = this.container.querySelector('.greeting-message');
+        if (greetingElement) {
+          greetingElement.textContent = `${this.getGreeting()}, ${this.username}`;
+        }
+      }
+    };
+
+    // Cancel on Escape
+    const cancelEdit = () => {
+      this.stopEditTimer();
+      
+      // Restore greeting message
+      const greetingElement = this.container.querySelector('.greeting-message');
+      if (greetingElement) {
+        greetingElement.textContent = `${this.getGreeting()}, ${this.username}`;
+      }
+    };
+
+    input.addEventListener('blur', saveEdit);
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        saveEdit();
+      }
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        cancelEdit();
+      }
+    });
+  }
+
+  /**
+   * Start edit timer (5 minutes countdown)
+   */
+  startEditTimer() {
+    this.editStartTime = Date.now();
+    
+    // Show timer container
+    const timerContainer = this.container.querySelector('.edit-timer-container');
+    if (timerContainer) {
+      timerContainer.style.display = 'block';
+    }
+
+    // Update countdown every second
+    this.updateEditCountdown();
+    this.editCountdownIntervalId = setInterval(() => {
+      this.updateEditCountdown();
+    }, 1000);
+
+    // Set timeout to auto-cancel after 5 minutes
+    this.editTimeoutId = setTimeout(() => {
+      this.cancelEditDueToTimeout();
+    }, this.editTimeLimit);
+  }
+
+  /**
+   * Stop edit timer
+   */
+  stopEditTimer() {
+    if (this.editTimeoutId) {
+      clearTimeout(this.editTimeoutId);
+      this.editTimeoutId = null;
+    }
+
+    if (this.editCountdownIntervalId) {
+      clearInterval(this.editCountdownIntervalId);
+      this.editCountdownIntervalId = null;
+    }
+
+    this.editStartTime = null;
+
+    // Hide timer container
+    const timerContainer = this.container.querySelector('.edit-timer-container');
+    if (timerContainer) {
+      timerContainer.style.display = 'none';
+    }
+  }
+
+  /**
+   * Update edit countdown display
+   */
+  updateEditCountdown() {
+    if (!this.editStartTime) return;
+
+    const elapsed = Date.now() - this.editStartTime;
+    const remaining = Math.max(0, this.editTimeLimit - elapsed);
+    const seconds = Math.ceil(remaining / 1000);
+
+    const countdownElement = this.container.querySelector('.edit-timer-countdown');
+    if (countdownElement) {
+      const minutes = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      countdownElement.textContent = `${minutes}:${secs.toString().padStart(2, '0')}`;
+    }
+  }
+
+  /**
+   * Cancel edit due to timeout
+   */
+  cancelEditDueToTimeout() {
+    this.stopEditTimer();
+    alert('Edit time expired. Please try again.');
+    
+    // Force update greeting to restore original state
+    const greetingElement = this.container.querySelector('.greeting-message');
+    if (greetingElement) {
+      greetingElement.textContent = `${this.getGreeting()}, ${this.username}`;
+    }
+  }
+
+  /**
+   * Get remaining edit time in seconds
+   * @returns {number} Remaining seconds
+   */
+  getRemainingEditTime() {
+    if (!this.editStartTime) {
+      return 0;
+    }
+    const elapsed = Date.now() - this.editStartTime;
+    const remaining = Math.max(0, this.editTimeLimit - elapsed);
+    return Math.ceil(remaining / 1000);
   }
 
   /**
@@ -106,6 +304,7 @@ class GreetingDisplay {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    this.stopEditTimer();
   }
 }
 

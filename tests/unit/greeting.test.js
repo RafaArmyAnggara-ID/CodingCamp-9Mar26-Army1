@@ -155,6 +155,63 @@ describe('GreetingDisplay', () => {
       const updatedTime = timeDisplay.textContent;
       expect(updatedTime).not.toBe(initialTime);
     });
+
+    it('should NOT update greeting message every second', () => {
+      vi.setSystemTime(new Date(2024, 0, 1, 10, 30, 45));
+      
+      greeting = new GreetingDisplay(container);
+      greeting.init();
+
+      const greetingMessage = container.querySelector('.greeting-message');
+      const initialGreeting = greetingMessage.textContent;
+
+      // Advance time by 1 second
+      vi.advanceTimersByTime(1000);
+
+      const updatedGreeting = greetingMessage.textContent;
+      expect(updatedGreeting).toBe(initialGreeting);
+    });
+
+    it('should update greeting message only after 5 minutes', () => {
+      vi.setSystemTime(new Date(2024, 0, 1, 10, 30, 0));
+      
+      greeting = new GreetingDisplay(container);
+      greeting.init();
+
+      const greetingMessage = container.querySelector('.greeting-message');
+      expect(greetingMessage.textContent).toBe('Good Morning, User');
+
+      // Advance time by 4 minutes 59 seconds - should NOT update
+      vi.advanceTimersByTime(4 * 60 * 1000 + 59 * 1000);
+      expect(greetingMessage.textContent).toBe('Good Morning, User');
+
+      // Change to afternoon time but greeting should still be morning
+      vi.setSystemTime(new Date(2024, 0, 1, 12, 34, 59));
+      vi.advanceTimersByTime(1000);
+      expect(greetingMessage.textContent).toBe('Good Morning, User');
+
+      // Advance 1 more second to complete 5 minutes - should update now
+      vi.advanceTimersByTime(1000);
+      expect(greetingMessage.textContent).toBe('Good Afternoon, User');
+    });
+
+    it('should track last greeting update time', () => {
+      vi.setSystemTime(new Date(2024, 0, 1, 10, 0, 0));
+      
+      greeting = new GreetingDisplay(container);
+      greeting.init();
+
+      expect(greeting.lastGreetingUpdate).toBeTruthy();
+      const firstUpdate = greeting.lastGreetingUpdate;
+
+      // Advance 1 second - should not update
+      vi.advanceTimersByTime(1000);
+      expect(greeting.lastGreetingUpdate).toBe(firstUpdate);
+
+      // Advance 5 minutes - should update
+      vi.advanceTimersByTime(5 * 60 * 1000);
+      expect(greeting.lastGreetingUpdate).toBeGreaterThan(firstUpdate);
+    });
   });
 
   describe('setUsername', () => {
@@ -183,13 +240,20 @@ describe('GreetingDisplay', () => {
       expect(greeting.username).toBe('User');
     });
 
-    it('should update display with new username', () => {
+    it('should update display with new username immediately', () => {
       vi.setSystemTime(new Date(2024, 0, 1, 10, 0, 0));
       
       greeting.setUsername('Diana');
 
       const greetingMessage = container.querySelector('.greeting-message');
       expect(greetingMessage.textContent).toBe('Good Morning, Diana');
+    });
+
+    it('should update lastGreetingUpdate when username changes', () => {
+      const beforeTime = Date.now();
+      greeting.setUsername('TestUser');
+      
+      expect(greeting.lastGreetingUpdate).toBeGreaterThanOrEqual(beforeTime);
     });
 
     it('should handle null or undefined gracefully', () => {
@@ -224,6 +288,288 @@ describe('GreetingDisplay', () => {
         greeting.destroy();
         greeting.destroy();
       }).not.toThrow();
+    });
+  });
+
+  describe('edit username functionality', () => {
+    beforeEach(() => {
+      vi.setSystemTime(new Date(2024, 0, 1, 10, 0, 0));
+      greeting = new GreetingDisplay(container);
+      greeting.init();
+    });
+
+    it('should render edit button', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      expect(editBtn).toBeTruthy();
+    });
+
+    it('should render edit timer container (hidden by default)', () => {
+      const timerContainer = container.querySelector('.edit-timer-container');
+      expect(timerContainer).toBeTruthy();
+      expect(timerContainer.style.display).toBe('none');
+    });
+
+    it('should show input when edit button is clicked', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      expect(input).toBeTruthy();
+      expect(input.value).toBe('User');
+    });
+
+    it('should show timer when edit starts', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const timerContainer = container.querySelector('.edit-timer-container');
+      expect(timerContainer.style.display).toBe('block');
+    });
+
+    it('should start countdown at 5:00', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const countdown = container.querySelector('.edit-timer-countdown');
+      expect(countdown.textContent).toBe('5:00');
+    });
+
+    it('should update countdown every second', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const countdown = container.querySelector('.edit-timer-countdown');
+      expect(countdown.textContent).toBe('5:00');
+
+      // Advance 1 second
+      vi.advanceTimersByTime(1000);
+      expect(countdown.textContent).toBe('4:59');
+
+      // Advance 59 more seconds
+      vi.advanceTimersByTime(59000);
+      expect(countdown.textContent).toBe('4:00');
+    });
+
+    it('should update username when Enter is pressed', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      input.value = 'John';
+      
+      const event = new KeyboardEvent('keypress', { key: 'Enter' });
+      input.dispatchEvent(event);
+
+      expect(greeting.username).toBe('John');
+      expect(StorageManager.set).toHaveBeenCalledWith('dashboard_username', 'John');
+      
+      const greetingMessage = container.querySelector('.greeting-message');
+      expect(greetingMessage.textContent).toBe('Good Morning, John');
+    });
+
+    it('should hide timer when edit is saved', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      input.value = 'John';
+      input.blur();
+
+      const timerContainer = container.querySelector('.edit-timer-container');
+      expect(timerContainer.style.display).toBe('none');
+    });
+
+    it('should update username when input loses focus', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      input.value = 'Sarah';
+      
+      input.blur();
+
+      expect(greeting.username).toBe('Sarah');
+      expect(StorageManager.set).toHaveBeenCalledWith('dashboard_username', 'Sarah');
+    });
+
+    it('should trim whitespace from username', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      input.value = '  Mike  ';
+      
+      input.blur();
+
+      expect(greeting.username).toBe('Mike');
+    });
+
+    it('should use default username for empty input', () => {
+      greeting.setUsername('TestUser');
+      
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      input.value = '';
+      
+      input.blur();
+
+      expect(greeting.username).toBe('User');
+    });
+
+    it('should cancel edit when Escape is pressed', () => {
+      greeting.setUsername('Original');
+      
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      input.value = 'Changed';
+      
+      const event = new KeyboardEvent('keydown', { key: 'Escape' });
+      input.dispatchEvent(event);
+
+      expect(greeting.username).toBe('Original');
+      
+      const greetingMessage = container.querySelector('.greeting-message');
+      expect(greetingMessage.textContent).toBe('Good Morning, Original');
+    });
+
+    it('should hide timer when edit is cancelled', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      const event = new KeyboardEvent('keydown', { key: 'Escape' });
+      input.dispatchEvent(event);
+
+      const timerContainer = container.querySelector('.edit-timer-container');
+      expect(timerContainer.style.display).toBe('none');
+    });
+
+    it('should reject username longer than 50 characters', () => {
+      greeting.setUsername('Original');
+      
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      const longName = 'a'.repeat(51);
+      input.value = longName;
+      
+      input.blur();
+
+      expect(greeting.username).toBe('Original');
+    });
+
+    it('should focus and select input text when edit button is clicked', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('should update display without refresh after editing', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      const greetingMessage = container.querySelector('.greeting-message');
+      
+      // Initial state
+      expect(greetingMessage.textContent).toBe('Good Morning, User');
+      
+      // Edit username
+      editBtn.click();
+      const input = container.querySelector('.username-edit-input');
+      input.value = 'Emma';
+      input.blur();
+      
+      // Check updated without full re-render
+      expect(greetingMessage.textContent).toBe('Good Morning, Emma');
+      expect(container.querySelector('.btn-edit-username')).toBeTruthy();
+    });
+
+    it('should auto-cancel edit after 5 minutes', () => {
+      vi.spyOn(window, 'alert').mockImplementation(() => {});
+      
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      const input = container.querySelector('.username-edit-input');
+      input.value = 'NewName';
+
+      // Advance time by 5 minutes
+      vi.advanceTimersByTime(5 * 60 * 1000);
+
+      expect(window.alert).toHaveBeenCalledWith('Edit time expired. Please try again.');
+      expect(greeting.username).toBe('User'); // Should not change
+      
+      const timerContainer = container.querySelector('.edit-timer-container');
+      expect(timerContainer.style.display).toBe('none');
+
+      window.alert.mockRestore();
+    });
+
+    it('should get remaining edit time correctly', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      // Initially should be 300 seconds (5 minutes)
+      expect(greeting.getRemainingEditTime()).toBe(300);
+
+      // After 1 second
+      vi.advanceTimersByTime(1000);
+      expect(greeting.getRemainingEditTime()).toBe(299);
+
+      // After 1 minute total
+      vi.advanceTimersByTime(59000);
+      expect(greeting.getRemainingEditTime()).toBe(240);
+    });
+
+    it('should return 0 remaining time when not editing', () => {
+      expect(greeting.getRemainingEditTime()).toBe(0);
+    });
+
+    it('should clear all timers when edit is completed', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      expect(greeting.editTimeoutId).not.toBeNull();
+      expect(greeting.editCountdownIntervalId).not.toBeNull();
+
+      const input = container.querySelector('.username-edit-input');
+      input.value = 'Test';
+      input.blur();
+
+      expect(greeting.editTimeoutId).toBeNull();
+      expect(greeting.editCountdownIntervalId).toBeNull();
+    });
+
+    it('should clear all timers when edit is cancelled', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      expect(greeting.editTimeoutId).not.toBeNull();
+      expect(greeting.editCountdownIntervalId).not.toBeNull();
+
+      const input = container.querySelector('.username-edit-input');
+      const event = new KeyboardEvent('keydown', { key: 'Escape' });
+      input.dispatchEvent(event);
+
+      expect(greeting.editTimeoutId).toBeNull();
+      expect(greeting.editCountdownIntervalId).toBeNull();
+    });
+
+    it('should clear edit timers on destroy', () => {
+      const editBtn = container.querySelector('.btn-edit-username');
+      editBtn.click();
+
+      expect(greeting.editTimeoutId).not.toBeNull();
+
+      greeting.destroy();
+
+      expect(greeting.editTimeoutId).toBeNull();
+      expect(greeting.editCountdownIntervalId).toBeNull();
     });
   });
 });
