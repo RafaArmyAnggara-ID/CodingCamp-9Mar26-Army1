@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Productivity Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Greeting Display -->
+        <div id="greeting-container" class="greeting-container"></div>
+        
+        <!-- Timer Widget -->
+        <div id="timer-container" class="timer-container"></div>
+        
+        <!-- Task Manager -->
+        <div id="tasks-container" class="tasks-container"></div>
+        
+        <!-- Quick Links -->
+        <div id="links-container" class="links-container"></div>
+        
+        <!-- Theme Controller -->
+        <div id="theme-toggle-container" class="theme-toggle-container">
+            <button class="theme-toggle" aria-label="Toggle theme">
+                <span class="theme-icon">🌙</span>
+            </button>
+        </div>
+    </div>
+
+    <script type="module" src="utils/storage.js"></script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
